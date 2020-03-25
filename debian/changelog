@@ -1,3 +1,9 @@
+lokimq (1.0.2-2~ubuntu1604) xenial; urgency=medium
+
+  * liblokimq-dev needs to be arch: any
+
+ -- Jason Rhinelander <jason@imaginary.ca>  Wed, 25 Mar 2020 16:21:22 -0300
+
 lokimq (1.0.2-1~ubuntu1604) xenial; urgency=medium
 
   * Rename keep-alive -> keep_alive in internal serialization
