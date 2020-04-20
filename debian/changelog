@@ -1,4 +1,4 @@
-lokimq (1.1.1~pre2-1~deb9) stretch; urgency=medium
+lokimq (1.1.1-1~deb9) stretch; urgency=medium
 
   * Drop idle connections regularly
   * Reduce heartbeat frequency to 15s
