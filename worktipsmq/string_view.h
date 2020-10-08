@@ -2,7 +2,7 @@
 
 #include <string_view>
 
-namespace lokimq {
+namespace worktipsmq {
 
 // Deprecated type alias for std::string_view
 using string_view = std::string_view;

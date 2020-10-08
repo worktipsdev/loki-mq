@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2020, The Loki Project
+// Copyright (c) 2019-2020, The Worktips Project
 //
 // All rights reserved.
 //
@@ -38,7 +38,7 @@
 #include <string>
 #include <string_view>
 
-namespace lokimq {
+namespace worktipsmq {
 
 struct bt_value;
 

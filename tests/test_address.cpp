@@ -1,4 +1,4 @@
-#include "lokimq/address.h"
+#include "worktipsmq/address.h"
 #include "common.h"
 
 const std::string pk = "\xf1\x6b\xa5\x59\x10\x39\xf0\x89\xb4\x2a\x83\x41\x75\x09\x30\x94\x07\x4d\x0d\x93\x7a\x79\xe5\x3e\x5c\xe7\x30\xf9\x46\xe1\x4b\x88";
@@ -105,27 +105,27 @@ TEST_CASE("pubkey formats", "[address][curve][pubkey]") {
 
 
 TEST_CASE("tcp QR-code friendly addresses", "[address][tcp][qr]") {
-    address a{"tcp://public.loki.foundation:12345"};
-    address a_qr{"TCP://PUBLIC.LOKI.FOUNDATION:12345"};
-    address b{"tcp://PUBLIC.LOKI.FOUNDATION:12345"};
+    address a{"tcp://public.worktips.foundation:12345"};
+    address a_qr{"TCP://PUBLIC.WORKTIPS.FOUNDATION:12345"};
+    address b{"tcp://PUBLIC.WORKTIPS.FOUNDATION:12345"};
     REQUIRE( a == a_qr );
     REQUIRE( a != b );
-    REQUIRE( a.host == "public.loki.foundation" );
-    REQUIRE( a.qr_address() == "TCP://PUBLIC.LOKI.FOUNDATION:12345" );
+    REQUIRE( a.host == "public.worktips.foundation" );
+    REQUIRE( a.qr_address() == "TCP://PUBLIC.WORKTIPS.FOUNDATION:12345" );
 
-    address c = address::tcp_curve("public.loki.foundation", 12345, pk);
-    REQUIRE( c.qr_address() == "CURVE://PUBLIC.LOKI.FOUNDATION:12345/" + pk_B32Z );
-    REQUIRE( address{"CURVE://PUBLIC.LOKI.FOUNDATION:12345/" + pk_B32Z} == c );
+    address c = address::tcp_curve("public.worktips.foundation", 12345, pk);
+    REQUIRE( c.qr_address() == "CURVE://PUBLIC.WORKTIPS.FOUNDATION:12345/" + pk_B32Z );
+    REQUIRE( address{"CURVE://PUBLIC.WORKTIPS.FOUNDATION:12345/" + pk_B32Z} == c );
     // We don't produce with upper-case hex, but we accept it:
-    REQUIRE( address{"CURVE://PUBLIC.LOKI.FOUNDATION:12345/" + pk_HEX} == c );
+    REQUIRE( address{"CURVE://PUBLIC.WORKTIPS.FOUNDATION:12345/" + pk_HEX} == c );
 
     // lower case not permitted:                          ▾
-    REQUIRE_THROWS_AS(address{"CURVE://PUBLIC.LOKI.FOUNDATiON:12345/" + pk_B32Z}, std::invalid_argument);
+    REQUIRE_THROWS_AS(address{"CURVE://PUBLIC.WORKTIPS.FOUNDATiON:12345/" + pk_B32Z}, std::invalid_argument);
     // also only accept upper-base base32z and hex:
-    REQUIRE_THROWS_AS(address{"CURVE://PUBLIC.LOKI.FOUNDATION:12345/" + pk_b32z}, std::invalid_argument);
-    REQUIRE_THROWS_AS(address{"CURVE://PUBLIC.LOKI.FOUNDATION:12345/" + pk_hex}, std::invalid_argument);
+    REQUIRE_THROWS_AS(address{"CURVE://PUBLIC.WORKTIPS.FOUNDATION:12345/" + pk_b32z}, std::invalid_argument);
+    REQUIRE_THROWS_AS(address{"CURVE://PUBLIC.WORKTIPS.FOUNDATION:12345/" + pk_hex}, std::invalid_argument);
     // don't accept base64 even if it's upper-case (because case-converting it changes the value)
-    REQUIRE_THROWS_AS(address{"CURVE://PUBLIC.LOKI.FOUNDATION:12345/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}, std::invalid_argument);
-    REQUIRE_THROWS_AS(address{"CURVE://PUBLIC.LOKI.FOUNDATION:12345/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}, std::invalid_argument);
+    REQUIRE_THROWS_AS(address{"CURVE://PUBLIC.WORKTIPS.FOUNDATION:12345/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}, std::invalid_argument);
+    REQUIRE_THROWS_AS(address{"CURVE://PUBLIC.WORKTIPS.FOUNDATION:12345/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}, std::invalid_argument);
 }
 

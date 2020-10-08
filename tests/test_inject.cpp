@@ -1,10 +1,10 @@
 #include "common.h"
 
-using namespace lokimq;
+using namespace worktipsmq;
 
 TEST_CASE("injected external commands", "[injected]") {
     std::string listen = "tcp://127.0.0.1:4567";
-    LokiMQ server{
+    WorktipsMQ server{
         "", "", // generate ephemeral keys
         false, // not a service node
         [](auto) { return ""; },
@@ -24,7 +24,7 @@ TEST_CASE("injected external commands", "[injected]") {
 
     server.start();
 
-    LokiMQ client{get_logger("C» "), LogLevel::trace};
+    WorktipsMQ client{get_logger("C» "), LogLevel::trace};
     client.start();
 
     std::atomic<bool> got{false};

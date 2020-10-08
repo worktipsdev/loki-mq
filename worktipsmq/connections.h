@@ -8,7 +8,7 @@
 #include <utility>
 #include <variant>
 
-namespace lokimq {
+namespace worktipsmq {
 
 struct ConnectionID;
 
@@ -77,18 +77,18 @@ private:
     long long id = 0;
     std::string pk;
     std::string route;
-    friend class LokiMQ;
+    friend class WorktipsMQ;
     friend struct std::hash<ConnectionID>;
     template <typename... T>
     friend bt_dict detail::build_send(ConnectionID to, std::string_view cmd, T&&... opts);
     friend std::ostream& operator<<(std::ostream& o, const ConnectionID& conn);
 };
 
-} // namespace lokimq
+} // namespace worktipsmq
 namespace std {
-    template <> struct hash<lokimq::ConnectionID> {
-        size_t operator()(const lokimq::ConnectionID &c) const {
-            return c.sn() ? lokimq::already_hashed{}(c.pk) :
+    template <> struct hash<worktipsmq::ConnectionID> {
+        size_t operator()(const worktipsmq::ConnectionID &c) const {
+            return c.sn() ? worktipsmq::already_hashed{}(c.pk) :
                 std::hash<long long>{}(c.id) + std::hash<std::string>{}(c.route);
         }
     };
