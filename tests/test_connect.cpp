@@ -6,7 +6,7 @@ extern "C" {
 
 
 TEST_CASE("connections with curve authentication", "[curve][connect]") {
-    std::string listen = "tcp://127.0.0.1:4455";
+    std::string listen = random_localhost();
     LokiMQ server{
         "", "", // generate ephemeral keys
         false, // not a service node
@@ -27,10 +27,9 @@ TEST_CASE("connections with curve authentication", "[curve][connect]") {
     auto pubkey = server.get_pubkey();
     std::atomic<bool> got{false};
     bool success = false;
-    auto server_conn = client.connect_remote(listen,
+    auto server_conn = client.connect_remote(address{listen, pubkey},
             [&](auto conn) { success = true; got = true; },
-            [&](auto conn, string_view reason) { auto lock = catch_lock(); INFO("connection failed: " << reason); got = true; },
-            pubkey);
+            [&](auto conn, std::string_view reason) { auto lock = catch_lock(); INFO("connection failed: " << reason); got = true; });
 
     wait_for_conn(got);
     {
@@ -53,16 +52,18 @@ TEST_CASE("self-connection SN optimization", "[connect][self]") {
     std::string pubkey, privkey;
     pubkey.resize(crypto_box_PUBLICKEYBYTES);
     privkey.resize(crypto_box_SECRETKEYBYTES);
+    REQUIRE(sodium_init() != -1);
+    auto listen_addr = random_localhost();
     crypto_box_keypair(reinterpret_cast<unsigned char*>(&pubkey[0]), reinterpret_cast<unsigned char*>(&privkey[0]));
     LokiMQ sn{
         pubkey, privkey,
         true,
-        [&](auto pk) { if (pk == pubkey) return "tcp://127.0.0.1:5544"; else return ""; },
+        [&](auto pk) { if (pk == pubkey) return listen_addr; else return ""s; },
         get_logger("S» "),
         LogLevel::trace
     };
 
-    sn.listen_curve("tcp://127.0.0.1:5544", [&](auto ip, auto pk, auto sn) {
+    sn.listen_curve(listen_addr, [&](auto ip, auto pk, auto sn) {
             auto lock = catch_lock();
             REQUIRE(ip == "127.0.0.1");
             REQUIRE(sn == (pk == pubkey));
@@ -90,7 +91,7 @@ TEST_CASE("self-connection SN optimization", "[connect][self]") {
 }
 
 TEST_CASE("plain-text connections", "[plaintext][connect]") {
-    std::string listen = "tcp://127.0.0.1:4455";
+    std::string listen = random_localhost();
     LokiMQ server{get_logger("S» "), LogLevel::trace};
 
     server.add_category("public", Access{AuthLevel::none});
@@ -108,7 +109,7 @@ TEST_CASE("plain-text connections", "[plaintext][connect]") {
     bool success = false;
     auto c = client.connect_remote(listen,
             [&](auto conn) { success = true; got = true; },
-            [&](auto conn, string_view reason) { auto lock = catch_lock(); INFO("connection failed: " << reason); got = true; }
+            [&](auto conn, std::string_view reason) { auto lock = catch_lock(); INFO("connection failed: " << reason); got = true; }
             );
 
     wait_for_conn(got);
@@ -129,7 +130,7 @@ TEST_CASE("plain-text connections", "[plaintext][connect]") {
 }
 
 TEST_CASE("unique connection IDs", "[connect][id]") {
-    std::string listen = "tcp://127.0.0.1:4455";
+    std::string listen = random_localhost();
     LokiMQ server{get_logger("S» "), LogLevel::trace};
 
     ConnectionID first, second;
@@ -150,11 +151,11 @@ TEST_CASE("unique connection IDs", "[connect][id]") {
     std::atomic<bool> good1{false}, good2{false};
     auto r1 = client1.connect_remote(listen,
             [&](auto conn) { good1 = true; },
-            [&](auto conn, string_view reason) { auto lock = catch_lock(); INFO("connection failed: " << reason); }
+            [&](auto conn, std::string_view reason) { auto lock = catch_lock(); INFO("connection failed: " << reason); }
             );
     auto r2 = client2.connect_remote(listen,
             [&](auto conn) { good2 = true; },
-            [&](auto conn, string_view reason) { auto lock = catch_lock(); INFO("connection failed: " << reason); }
+            [&](auto conn, std::string_view reason) { auto lock = catch_lock(); INFO("connection failed: " << reason); }
             );
 
     wait_for_conn(good1);
@@ -188,13 +189,14 @@ TEST_CASE("SN disconnections", "[connect][disconnect]") {
     std::vector<std::unique_ptr<LokiMQ>> lmq;
     std::vector<std::string> pubkey, privkey;
     std::unordered_map<std::string, std::string> conn;
+    REQUIRE(sodium_init() != -1);
     for (int i = 0; i < 3; i++) {
         pubkey.emplace_back();
         privkey.emplace_back();
         pubkey[i].resize(crypto_box_PUBLICKEYBYTES);
         privkey[i].resize(crypto_box_SECRETKEYBYTES);
         crypto_box_keypair(reinterpret_cast<unsigned char*>(&pubkey[i][0]), reinterpret_cast<unsigned char*>(&privkey[i][0]));
-        conn.emplace(pubkey[i], "tcp://127.0.0.1:" + std::to_string(4450 + i));
+        conn.emplace(pubkey[i], random_localhost());
     }
     std::atomic<int> his{0};
     for (int i = 0; i < pubkey.size(); i++) {
@@ -230,10 +232,11 @@ TEST_CASE("SN auth checks", "[sandwich][auth]") {
     // isn't recognized as a SN but tries to invoke a SN command it'll be told to disconnect; if it
     // tries to send again it should reconnect and reauthenticate.  This test is meant to test this
     // pattern where the reconnection/reauthentication now authenticates it as a SN.
-    std::string listen = "tcp://127.0.0.1:4455";
+    std::string listen = random_localhost();
     std::string pubkey, privkey;
     pubkey.resize(crypto_box_PUBLICKEYBYTES);
     privkey.resize(crypto_box_SECRETKEYBYTES);
+    REQUIRE(sodium_init() != -1);
     crypto_box_keypair(reinterpret_cast<unsigned char*>(&pubkey[0]), reinterpret_cast<unsigned char*>(&privkey[0]));
     LokiMQ server{
         pubkey, privkey,
@@ -348,7 +351,7 @@ TEST_CASE("SN auth checks", "[sandwich][auth]") {
 TEST_CASE("SN single worker test", "[connect][worker]") {
     // Tests a failure case that could trigger when all workers are allocated (here we make that
     // simpler by just having one worker).
-    std::string listen = "tcp://127.0.0.1:4455";
+    std::string listen = random_localhost();
     LokiMQ server{
         "", "",
         false, // service node

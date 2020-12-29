@@ -27,10 +27,12 @@
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
-#include "string_view.h"
+#include <string>
+#include <string_view>
 #include <array>
 #include <iterator>
 #include <cassert>
+#include "byte_type.h"
 
 namespace lokimq {
 
@@ -75,7 +77,7 @@ static_assert(b32z_lut.from_b32z('w') == 20 && b32z_lut.from_b32z('T') == 17 && 
 /// Converts bytes into a base32z encoded character sequence.
 template <typename InputIt, typename OutputIt>
 void to_base32z(InputIt begin, InputIt end, OutputIt out) {
-    static_assert(sizeof(*begin) == 1, "to_base32z requires chars/bytes");
+    static_assert(sizeof(decltype(*begin)) == 1, "to_base32z requires chars/bytes");
     int bits = 0; // Tracks the number of unconsumed bits held in r, will always be in [0, 4]
     std::uint_fast16_t r = 0;
     while (begin != end) {
@@ -100,27 +102,27 @@ void to_base32z(InputIt begin, InputIt end, OutputIt out) {
         *out++ = detail::b32z_lut.to_b32z(r << (5 - bits));
 }
 
-/// Creates a base32z string from an iterable, std::string-like object
-inline std::string to_base32z(string_view s) {
+/// Creates a base32z string from an iterator pair of a byte sequence.
+template <typename It>
+std::string to_base32z(It begin, It end) {
     std::string base32z;
-    base32z.reserve((s.size()*8 + 4) / 5); // == bytes*8/5, rounded up.
-    to_base32z(s.begin(), s.end(), std::back_inserter(base32z));
+    if constexpr (std::is_base_of_v<std::random_access_iterator_tag, typename std::iterator_traits<It>::iterator_category>)
+        base32z.reserve((std::distance(begin, end)*8 + 4) / 5); // == bytes*8/5, rounded up.
+    to_base32z(begin, end, std::back_inserter(base32z));
     return base32z;
 }
 
-inline std::string to_base32z(ustring_view s) {
-    std::string base32z;
-    base32z.reserve((s.size()*8 + 4) / 5);
-    to_base32z(s.begin(), s.end(), std::back_inserter(base32z));
-    return base32z;
-}
+/// Creates a base32z string from an iterable, std::string-like object
+template <typename CharT>
+std::string to_base32z(std::basic_string_view<CharT> s) { return to_base32z(s.begin(), s.end()); }
+inline std::string to_base32z(std::string_view s) { return to_base32z<>(s); }
 
 /// Returns true if all elements in the range are base32z characters
 template <typename It>
 constexpr bool is_base32z(It begin, It end) {
-    static_assert(sizeof(*begin) == 1, "is_base32z requires chars/bytes");
+    static_assert(sizeof(decltype(*begin)) == 1, "is_base32z requires chars/bytes");
     for (; begin != end; ++begin) {
-        auto c = *begin;
+        auto c = static_cast<unsigned char>(*begin);
         if (detail::b32z_lut.from_b32z(c) == 0 && !(c == 'y' || c == 'Y'))
             return false;
     }
@@ -128,8 +130,9 @@ constexpr bool is_base32z(It begin, It end) {
 }
 
 /// Returns true if all elements in the string-like value are base32z characters
-constexpr bool is_base32z(string_view s) { return is_base32z(s.begin(), s.end()); }
-constexpr bool is_base32z(ustring_view s) { return is_base32z(s.begin(), s.end()); }
+template <typename CharT>
+constexpr bool is_base32z(std::basic_string_view<CharT> s) { return is_base32z(s.begin(), s.end()); }
+constexpr bool is_base32z(std::string_view s) { return is_base32z<>(s); }
 
 /// Converts a sequence of base32z digits to bytes.  Undefined behaviour if any characters are not
 /// valid base32z alphabet characters.  It is permitted for the input and output ranges to overlap
@@ -144,15 +147,15 @@ constexpr bool is_base32z(ustring_view s) { return is_base32z(s.begin(), s.end()
 /// are): which means "yy", "yb", "yyy", "yy9", "yd", etc. all decode to the same 1-byte value "\0".
 template <typename InputIt, typename OutputIt>
 void from_base32z(InputIt begin, InputIt end, OutputIt out) {
-    using Char = decltype(*begin);
-    static_assert(sizeof(Char) == 1, "from_base32z requires chars/bytes");
-    uint_fast16_t curr;
+    static_assert(sizeof(decltype(*begin)) == 1, "from_base32z requires chars/bytes");
+    uint_fast16_t curr = 0;
     int bits = 0; // number of bits we've loaded into val; we always keep this < 8.
     while (begin != end) {
-        curr = curr << 5 | detail::b32z_lut.from_b32z(*begin++);
+        curr = curr << 5 | detail::b32z_lut.from_b32z(static_cast<unsigned char>(*begin++));
         if (bits >= 3) {
             bits -= 3; // Added 5, removing 8
-            *out++ = static_cast<Char>(curr >> bits);
+            *out++ = static_cast<detail::byte_type_t<OutputIt>>(
+                    static_cast<uint8_t>(curr >> bits));
             curr &= (1 << bits) - 1;
         } else {
             bits += 5;
@@ -182,20 +185,21 @@ void from_base32z(InputIt begin, InputIt end, OutputIt out) {
     // character you added isn't there by not doing anything here.
 }
 
-/// Converts base32z digits from a std::string-like object into a std::string of bytes.  Undefined
-/// behaviour if any characters are not valid (case-insensitive) base32z characters.
-inline std::string from_base32z(string_view s) {
+/// Convert a base32z sequence into a std::string of bytes.  Undefined behaviour if any characters
+/// are not valid (case-insensitive) base32z characters.
+template <typename It>
+std::string from_base32z(It begin, It end) {
     std::string bytes;
-    bytes.reserve((s.size()*5 + 7) / 8); // == chars*5/8, rounded up.
-    from_base32z(s.begin(), s.end(), std::back_inserter(bytes));
+    if constexpr (std::is_base_of_v<std::random_access_iterator_tag, typename std::iterator_traits<It>::iterator_category>)
+        bytes.reserve((std::distance(begin, end)*5 + 7) / 8); // == chars*5/8, rounded up.
+    from_base32z(begin, end, std::back_inserter(bytes));
     return bytes;
 }
 
-inline std::string from_base32z(ustring_view s) {
-    std::string bytes;
-    bytes.reserve((s.size()*5 + 7) / 8);
-    from_base32z(s.begin(), s.end(), std::back_inserter(bytes));
-    return bytes;
-}
+/// Converts base32z digits from a std::string-like object into a std::string of bytes.  Undefined
+/// behaviour if any characters are not valid (case-insensitive) base32z characters.
+template <typename CharT>
+std::string from_base32z(std::basic_string_view<CharT> s) { return from_base32z(s.begin(), s.end()); }
+inline std::string from_base32z(std::string_view s) { return from_base32z<>(s); }
 
 }

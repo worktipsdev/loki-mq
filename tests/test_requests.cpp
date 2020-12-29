@@ -4,7 +4,7 @@
 using namespace lokimq;
 
 TEST_CASE("basic requests", "[requests]") {
-    std::string listen = "tcp://127.0.0.1:5678";
+    std::string listen = random_localhost();
     LokiMQ server{
         "", "", // generate ephemeral keys
         false, // not a service node
@@ -30,10 +30,9 @@ TEST_CASE("basic requests", "[requests]") {
     std::atomic<bool> connected{false}, failed{false};
     std::string pubkey;
 
-    auto c = client.connect_remote(listen,
+    auto c = client.connect_remote(address{listen, server.get_pubkey()},
             [&](auto conn) { pubkey = conn.pubkey(); connected = true; },
-            [&](auto, auto) { failed = true; },
-            server.get_pubkey());
+            [&](auto, auto) { failed = true; });
 
     wait_for([&] { return connected || failed; });
     {
@@ -62,7 +61,7 @@ TEST_CASE("basic requests", "[requests]") {
 }
 
 TEST_CASE("request from server to client", "[requests]") {
-    std::string listen = "tcp://127.0.0.1:5678";
+    std::string listen = random_localhost();
     LokiMQ server{
         "", "", // generate ephemeral keys
         false, // not a service node
@@ -88,10 +87,9 @@ TEST_CASE("request from server to client", "[requests]") {
     std::atomic<bool> connected{false}, failed{false};
     std::string pubkey;
 
-    auto c = client.connect_remote(listen,
+    auto c = client.connect_remote(address{listen, server.get_pubkey()},
             [&](auto conn) { pubkey = conn.pubkey(); connected = true; },
-            [&](auto, auto) { failed = true; },
-            server.get_pubkey());
+            [&](auto, auto) { failed = true; });
 
     int i;
     for (i = 0; i < 5; i++) {
@@ -126,7 +124,7 @@ TEST_CASE("request from server to client", "[requests]") {
 }
 
 TEST_CASE("request timeouts", "[requests][timeout]") {
-    std::string listen = "tcp://127.0.0.1:5678";
+    std::string listen = random_localhost();
     LokiMQ server{
         "", "", // generate ephemeral keys
         false, // not a service node
@@ -151,10 +149,9 @@ TEST_CASE("request timeouts", "[requests][timeout]") {
     std::atomic<bool> connected{false}, failed{false};
     std::string pubkey;
 
-    auto c = client.connect_remote(listen,
+    auto c = client.connect_remote(address{listen, server.get_pubkey()},
             [&](auto conn) { pubkey = conn.pubkey(); connected = true; },
-            [&](auto, auto) { failed = true; },
-            server.get_pubkey());
+            [&](auto, auto) { failed = true; });
 
     wait_for([&] { return connected || failed; });
 
@@ -170,7 +167,7 @@ TEST_CASE("request timeouts", "[requests][timeout]") {
             success = ok;
             data = std::move(data_);
         },
-        lokimq::send_option::request_timeout{20ms}
+        lokimq::send_option::request_timeout{10ms}
     );
 
     std::atomic<bool> got_triggered2{false};
@@ -179,10 +176,10 @@ TEST_CASE("request timeouts", "[requests][timeout]") {
             success = ok;
             data = std::move(data_);
         },
-        lokimq::send_option::request_timeout{100ms}
+        lokimq::send_option::request_timeout{200ms}
     );
 
-    std::this_thread::sleep_for(40ms);
+    std::this_thread::sleep_for(100ms);
     REQUIRE( got_triggered );
     REQUIRE_FALSE( got_triggered2 );
     REQUIRE_FALSE( success );

@@ -36,25 +36,25 @@ void LokiMQ::rebuild_pollitems() {
 }
 
 void LokiMQ::setup_external_socket(zmq::socket_t& socket) {
-    socket.setsockopt(ZMQ_RECONNECT_IVL, (int) RECONNECT_INTERVAL.count());
-    socket.setsockopt(ZMQ_RECONNECT_IVL_MAX, (int) RECONNECT_INTERVAL_MAX.count());
-    socket.setsockopt(ZMQ_HANDSHAKE_IVL, (int) HANDSHAKE_TIME.count());
-    socket.setsockopt<int64_t>(ZMQ_MAXMSGSIZE, MAX_MSG_SIZE);
+    socket.set(zmq::sockopt::reconnect_ivl, (int) RECONNECT_INTERVAL.count());
+    socket.set(zmq::sockopt::reconnect_ivl_max, (int) RECONNECT_INTERVAL_MAX.count());
+    socket.set(zmq::sockopt::handshake_ivl, (int) HANDSHAKE_TIME.count());
+    socket.set(zmq::sockopt::maxmsgsize, MAX_MSG_SIZE);
     if (CONN_HEARTBEAT > 0s) {
-        socket.setsockopt(ZMQ_HEARTBEAT_IVL, (int) CONN_HEARTBEAT.count());
+        socket.set(zmq::sockopt::heartbeat_ivl, (int) CONN_HEARTBEAT.count());
         if (CONN_HEARTBEAT_TIMEOUT > 0s)
-            socket.setsockopt(ZMQ_HEARTBEAT_TIMEOUT, (int) CONN_HEARTBEAT_TIMEOUT.count());
+            socket.set(zmq::sockopt::heartbeat_timeout, (int) CONN_HEARTBEAT_TIMEOUT.count());
     }
 }
 
-void LokiMQ::setup_outgoing_socket(zmq::socket_t& socket, string_view remote_pubkey) {
+void LokiMQ::setup_outgoing_socket(zmq::socket_t& socket, std::string_view remote_pubkey) {
 
     setup_external_socket(socket);
 
     if (!remote_pubkey.empty()) {
-        socket.setsockopt(ZMQ_CURVE_SERVERKEY, remote_pubkey.data(), remote_pubkey.size());
-        socket.setsockopt(ZMQ_CURVE_PUBLICKEY, pubkey.data(), pubkey.size());
-        socket.setsockopt(ZMQ_CURVE_SECRETKEY, privkey.data(), privkey.size());
+        socket.set(zmq::sockopt::curve_serverkey, remote_pubkey);
+        socket.set(zmq::sockopt::curve_publickey, pubkey);
+        socket.set(zmq::sockopt::curve_secretkey, privkey);
     }
 
     if (PUBKEY_BASED_ROUTING_ID) {
@@ -62,12 +62,12 @@ void LokiMQ::setup_outgoing_socket(zmq::socket_t& socket, string_view remote_pub
         routing_id.reserve(33);
         routing_id += 'L'; // Prefix because routing id's starting with \0 are reserved by zmq (and our pubkey might start with \0)
         routing_id.append(pubkey.begin(), pubkey.end());
-        socket.setsockopt(ZMQ_ROUTING_ID, routing_id.data(), routing_id.size());
+        socket.set(zmq::sockopt::routing_id, routing_id);
     }
     // else let ZMQ pick a random one
 }
 
-ConnectionID LokiMQ::connect_sn(string_view pubkey, std::chrono::milliseconds keep_alive, string_view hint) {
+ConnectionID LokiMQ::connect_sn(std::string_view pubkey, std::chrono::milliseconds keep_alive, std::string_view hint) {
     if (!proxy_thread.joinable())
         throw std::logic_error("Cannot call connect_sn() before calling `start()`");
 
@@ -76,28 +76,30 @@ ConnectionID LokiMQ::connect_sn(string_view pubkey, std::chrono::milliseconds ke
     return pubkey;
 }
 
-ConnectionID LokiMQ::connect_remote(string_view remote, ConnectSuccess on_connect, ConnectFailure on_failure,
-        string_view pubkey, AuthLevel auth_level, std::chrono::milliseconds timeout) {
+ConnectionID LokiMQ::connect_remote(const address& remote, ConnectSuccess on_connect, ConnectFailure on_failure,
+        AuthLevel auth_level, std::chrono::milliseconds timeout) {
     if (!proxy_thread.joinable())
         throw std::logic_error("Cannot call connect_remote() before calling `start()`");
 
-    if (remote.size() < 7 || !(remote.substr(0, 6) == "tcp://" || remote.substr(0, 6) == "ipc://" /* unix domain sockets */))
-        throw std::runtime_error("Invalid connect_remote: remote address '" + std::string{remote} + "' is not a valid or supported zmq connect string");
-
     auto id = next_conn_id++;
-    LMQ_TRACE("telling proxy to connect to ", remote, ", id ", id,
-            pubkey.empty() ? "using NULL auth" : ", using CURVE with remote pubkey [" + to_hex(pubkey) + "]");
+    LMQ_TRACE("telling proxy to connect to ", remote, ", id ", id);
     detail::send_control(get_control_socket(), "CONNECT_REMOTE", bt_serialize<bt_dict>({
         {"auth_level", static_cast<std::underlying_type_t<AuthLevel>>(auth_level)},
         {"conn_id", id},
         {"connect", detail::serialize_object(std::move(on_connect))},
         {"failure", detail::serialize_object(std::move(on_failure))},
-        {"pubkey", pubkey},
-        {"remote", remote},
+        {"pubkey", remote.curve() ? remote.pubkey : ""},
+        {"remote", remote.zmq_address()},
         {"timeout", timeout.count()},
     }));
 
     return id;
+}
+
+ConnectionID LokiMQ::connect_remote(std::string_view remote, ConnectSuccess on_connect, ConnectFailure on_failure,
+        std::string_view pubkey, AuthLevel auth_level, std::chrono::milliseconds timeout) {
+    return connect_remote(address{remote}.set_pubkey(pubkey),
+            std::move(on_connect), std::move(on_failure), auth_level, timeout);
 }
 
 void LokiMQ::disconnect(ConnectionID id, std::chrono::milliseconds linger) {
@@ -109,7 +111,7 @@ void LokiMQ::disconnect(ConnectionID id, std::chrono::milliseconds linger) {
 }
 
 std::pair<zmq::socket_t *, std::string>
-LokiMQ::proxy_connect_sn(string_view remote, string_view connect_hint, bool optional, bool incoming_only, bool outgoing_only, std::chrono::milliseconds keep_alive) {
+LokiMQ::proxy_connect_sn(std::string_view remote, std::string_view connect_hint, bool optional, bool incoming_only, bool outgoing_only, std::chrono::milliseconds keep_alive) {
     ConnectionID remote_cid{remote};
     auto its = peers.equal_range(remote_cid);
     peer_info* peer = nullptr;
@@ -185,7 +187,7 @@ LokiMQ::proxy_connect_sn(string_view remote, string_view connect_hint, bool opti
 }
 
 std::pair<zmq::socket_t *, std::string> LokiMQ::proxy_connect_sn(bt_dict_consumer data) {
-    string_view hint, remote_pk;
+    std::string_view hint, remote_pk;
     std::chrono::milliseconds keep_alive;
     bool optional = false, incoming_only = false, outgoing_only = false;
 
@@ -225,7 +227,7 @@ void update_connection_indices(Container& c, size_t index, AccessIndex get_index
 /// which can invalidate iterators on the various connection containers - if you don't want that,
 /// delete it first so that the container won't contain the element being deleted.
 void LokiMQ::proxy_close_connection(size_t index, std::chrono::milliseconds linger) {
-    connections[index].setsockopt<int>(ZMQ_LINGER, linger > 0ms ? linger.count() : 0);
+    connections[index].set(zmq::sockopt::linger, linger > 0ms ? (int) linger.count() : 0);
     pollitems_stale = true;
     connections.erase(connections.begin() + index);
 

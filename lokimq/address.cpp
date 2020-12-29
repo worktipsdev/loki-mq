@@ -1,8 +1,13 @@
 #include "address.h"
+#include <tuple>
+#include <limits>
+#include <cstddef>
+#include <utility>
+#include <stdexcept>
+#include <ostream>
 #include "hex.h"
 #include "base32z.h"
 #include "base64.h"
-#include <tuple>
 
 namespace lokimq {
 
@@ -16,7 +21,7 @@ constexpr size_t enc_length(address::encoding enc) {
 // consumed pubkey data, and returns the pubkey (as a 32-byte string).  Throws if no valid pubkey
 // was found at the beginning of addr.  We look for hex, base32z, or base64 pubkeys *unless* qr is
 // given: for QR-friendly we only accept hex or base32z (since QR cannot handle base64's alphabet).
-std::string decode_pubkey(string_view& in, bool qr) {
+std::string decode_pubkey(std::string_view& in, bool qr) {
     std::string pubkey;
     if (in.size() >= 64 && lokimq::is_hex(in.substr(0, 64))) {
         pubkey = from_hex(in.substr(0, 64));
@@ -38,12 +43,12 @@ std::string decode_pubkey(string_view& in, bool qr) {
 // Parse the host, port, and optionally pubkey from a string view, mutating it to remove the parsed
 // sections.  qr should be true if we should accept $IPv6$ as a QR-encoding-friendly alternative to
 // [IPv6] (the returned host will have the $ replaced, i.e. [IPv6]).
-std::tuple<std::string, uint16_t, std::string> parse_tcp(string_view& addr, bool qr, bool expect_pubkey) {
+std::tuple<std::string, uint16_t, std::string> parse_tcp(std::string_view& addr, bool qr, bool expect_pubkey) {
     std::tuple<std::string, uint16_t, std::string> result;
     auto& host = std::get<0>(result);
     if (addr.front() == '[' || (qr && addr.front() == '$')) { // IPv6 addr (though this is far from complete validation)
         auto pos = addr.find_first_not_of(":.1234567890abcdefABCDEF", 1);
-        if (pos == string_view::npos)
+        if (pos == std::string_view::npos)
             throw std::invalid_argument("Could not find terminating ] while parsing an IPv6 address");
         if (!(addr[pos] == ']' || (qr && addr[pos] == '$')))
             throw std::invalid_argument{"Expected " + (qr ? "$"s : "]"s) + " to close IPv6 address but found " + std::string(1, addr[pos])};
@@ -57,7 +62,7 @@ std::tuple<std::string, uint16_t, std::string> parse_tcp(string_view& addr, bool
         addr.remove_prefix(pos+1);
     } else {
         auto port_pos = addr.find(':');
-        if (port_pos == string_view::npos)
+        if (port_pos == std::string_view::npos)
             throw std::invalid_argument{"Could not determine host (no following ':port' found)"};
         if (port_pos == 0)
             throw std::invalid_argument{"Host cannot be empty"};
@@ -77,7 +82,7 @@ std::tuple<std::string, uint16_t, std::string> parse_tcp(string_view& addr, bool
     auto pos = addr.find_first_not_of("1234567890");
     if (pos == 0)
         throw std::invalid_argument{"Could not find numeric port in address string"};
-    if (pos == string_view::npos)
+    if (pos == std::string_view::npos)
         pos = addr.size();
     size_t processed;
     int port_int = std::stoi(std::string{addr.substr(0, pos)}, &processed);
@@ -107,7 +112,7 @@ std::tuple<std::string, uint16_t, std::string> parse_tcp(string_view& addr, bool
 // Parse the socket path and (possibly) pubkey, mutating it to remove the parsed sections.
 // Currently the /pubkey *must* be at the end of the string, but this might not always be the case
 // (e.g. we could in the future support query string-like arguments).
-std::pair<std::string, std::string> parse_unix(string_view& addr, bool expect_pubkey) {
+std::pair<std::string, std::string> parse_unix(std::string_view& addr, bool expect_pubkey) {
     std::pair<std::string, std::string> result;
     if (expect_pubkey) {
         size_t b64_len = addr.size() > 0 && addr.back() == '=' ? 44 : 43;
@@ -134,9 +139,9 @@ std::pair<std::string, std::string> parse_unix(string_view& addr, bool expect_pu
     return result;
 }
 
-address::address(string_view addr) {
-    auto protoend = addr.find("://"_sv);
-    if (protoend == string_view::npos || protoend == 0)
+address::address(std::string_view addr) {
+    auto protoend = addr.find("://"sv);
+    if (protoend == std::string_view::npos || protoend == 0)
         throw std::invalid_argument("Invalid address: no protocol found");
     auto pro = addr.substr(0, protoend);
     addr.remove_prefix(protoend + 3);
@@ -174,6 +179,20 @@ address::address(string_view addr) {
 
     if (!addr.empty())
         throw std::invalid_argument{"Invalid trailing garbage '" + std::string{addr} + "' in address"};
+}
+
+address& address::set_pubkey(std::string_view pk) {
+    if (pk.size() == 0) {
+        if (protocol == proto::tcp_curve) protocol = proto::tcp;
+        else if (protocol == proto::ipc_curve) protocol = proto::ipc;
+    } else if (pk.size() == 32) {
+        if (protocol == proto::tcp) protocol = proto::tcp_curve;
+        else if (protocol == proto::ipc) protocol = proto::ipc_curve;
+    } else {
+        throw std::invalid_argument{"Invalid pubkey passed to set_pubkey(): require 0- or 32-byte pubkey"};
+    }
+    pubkey = pk;
+    return *this;
 }
 
 std::string address::encode_pubkey(encoding enc) const {
@@ -326,5 +345,7 @@ address address::ipc_curve(std::string path, std::string pubkey) {
     a.pubkey = std::move(pubkey);
     return a;
 }
+
+std::ostream& operator<<(std::ostream& o, const address& a) { return o << a.full_address(); }
 
 }

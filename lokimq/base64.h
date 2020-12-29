@@ -27,10 +27,12 @@
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
-#include "string_view.h"
+#include <string>
+#include <string_view>
 #include <array>
 #include <iterator>
 #include <cassert>
+#include "byte_type.h"
 
 namespace lokimq {
 
@@ -77,7 +79,7 @@ static_assert(b64_lut.from_b64('/') == 63 && b64_lut.from_b64('7') == 59 && b64_
 /// Converts bytes into a base64 encoded character sequence.
 template <typename InputIt, typename OutputIt>
 void to_base64(InputIt begin, InputIt end, OutputIt out) {
-    static_assert(sizeof(*begin) == 1, "to_base64 requires chars/bytes");
+    static_assert(sizeof(decltype(*begin)) == 1, "to_base64 requires chars/bytes");
     int bits = 0; // Tracks the number of unconsumed bits held in r, will always be in {0, 2, 4}
     std::uint_fast16_t r = 0;
     while (begin != end) {
@@ -116,40 +118,40 @@ void to_base64(InputIt begin, InputIt end, OutputIt out) {
     }
 }
 
-/// Creates a base64 string from an iterable, std::string-like object
-inline std::string to_base64(string_view s) {
+/// Creates and returns a base64 string from an iterator pair of a character sequence
+template <typename It>
+std::string to_base64(It begin, It end) {
     std::string base64;
-    base64.reserve((s.size() + 2) / 3 * 4);
-    to_base64(s.begin(), s.end(), std::back_inserter(base64));
+    if constexpr (std::is_base_of_v<std::random_access_iterator_tag, typename std::iterator_traits<It>::iterator_category>)
+        base64.reserve((std::distance(begin, end) + 2) / 3 * 4); // bytes*4/3, rounded up to the next multiple of 4
+    to_base64(begin, end, std::back_inserter(base64));
     return base64;
 }
 
-inline std::string to_base64(ustring_view s) {
-    std::string base64;
-    base64.reserve((s.size() + 2) / 3 * 4);
-    to_base64(s.begin(), s.end(), std::back_inserter(base64));
-    return base64;
-}
+/// Creates a base64 string from an iterable, std::string-like object
+template <typename CharT>
+std::string to_base64(std::basic_string_view<CharT> s) { return to_base64(s.begin(), s.end()); }
+inline std::string to_base64(std::string_view s) { return to_base64<>(s); }
 
 /// Returns true if the range is a base64 encoded value; we allow (but do not require) '=' padding,
 /// but only at the end, only 1 or 2, and only if it pads out the total to a multiple of 4.
 template <typename It>
 constexpr bool is_base64(It begin, It end) {
-    static_assert(sizeof(*begin) == 1, "is_base64 requires chars/bytes");
+    static_assert(sizeof(decltype(*begin)) == 1, "is_base64 requires chars/bytes");
     using std::distance;
     using std::prev;
 
     // Allow 1 or 2 padding chars *if* they pad it to a multiple of 4.
     if (begin != end && distance(begin, end) % 4 == 0) {
         auto last = prev(end);
-        if (*last == '=')
+        if (static_cast<unsigned char>(*last) == '=')
             end = last--;
-        if (*last == '=')
+        if (static_cast<unsigned char>(*last) == '=')
             end = last;
     }
 
     for (; begin != end; ++begin) {
-        auto c = *begin;
+        auto c = static_cast<unsigned char>(*begin);
         if (detail::b64_lut.from_b64(c) == 0 && c != 'A')
             return false;
     }
@@ -157,8 +159,9 @@ constexpr bool is_base64(It begin, It end) {
 }
 
 /// Returns true if the string-like value is a base64 encoded value
-constexpr bool is_base64(string_view s) { return is_base64(s.begin(), s.end()); }
-constexpr bool is_base64(ustring_view s) { return is_base64(s.begin(), s.end()); }
+template <typename CharT>
+constexpr bool is_base64(std::basic_string_view<CharT> s) { return is_base64(s.begin(), s.end()); }
+constexpr bool is_base64(std::string_view s) { return is_base64(s.begin(), s.end()); }
 
 /// Converts a sequence of base64 digits to bytes.  Undefined behaviour if any characters are not
 /// valid base64 alphabet characters.  It is permitted for the input and output ranges to overlap as
@@ -173,12 +176,11 @@ constexpr bool is_base64(ustring_view s) { return is_base64(s.begin(), s.end());
 /// the last 4 bits of the last character are essentially considered padding.
 template <typename InputIt, typename OutputIt>
 void from_base64(InputIt begin, InputIt end, OutputIt out) {
-    using Char = decltype(*begin);
-    static_assert(sizeof(Char) == 1, "from_base64 requires chars/bytes");
-    uint_fast16_t curr;
+    static_assert(sizeof(decltype(*begin)) == 1, "from_base64 requires chars/bytes");
+    uint_fast16_t curr = 0;
     int bits = 0; // number of bits we've loaded into val; we always keep this < 8.
     while (begin != end) {
-        Char c = *begin++;
+        auto c = static_cast<unsigned char>(*begin++);
 
         // padding; don't bother checking if we're at the end because is_base64 is a precondition
         // and we're allowed UB if it isn't satisfied.
@@ -189,7 +191,8 @@ void from_base64(InputIt begin, InputIt end, OutputIt out) {
             bits = 6;
         else {
             bits -= 2; // Added 6, removing 8
-            *out++ = static_cast<Char>(curr >> bits);
+            *out++ = static_cast<detail::byte_type_t<OutputIt>>(
+                    static_cast<uint8_t>(curr >> bits));
             curr &= (1 << bits) - 1;
         }
     }
@@ -198,20 +201,21 @@ void from_base64(InputIt begin, InputIt end, OutputIt out) {
     // character here instead of 5).
 }
 
-/// Converts base64 digits from a std::string-like object into a std::string of bytes.  Undefined
-/// behaviour if any characters are not valid base64 characters.
-inline std::string from_base64(string_view s) {
+/// Converts base64 digits from a iterator pair of characters into a std::string of bytes.
+/// Undefined behaviour if any characters are not valid base64 characters.
+template <typename It>
+std::string from_base64(It begin, It end) {
     std::string bytes;
-    bytes.reserve(s.size()*6 / 8);
-    from_base64(s.begin(), s.end(), std::back_inserter(bytes));
+    if constexpr (std::is_base_of_v<std::random_access_iterator_tag, typename std::iterator_traits<It>::iterator_category>)
+        bytes.reserve(std::distance(begin, end)*6 / 8); // each digit carries 6 bits; this may overallocate by 1-2 bytes due to padding
+    from_base64(begin, end, std::back_inserter(bytes));
     return bytes;
 }
 
-inline std::string from_base64(ustring_view s) {
-    std::string bytes;
-    bytes.reserve(s.size()*6 / 8);
-    from_base64(s.begin(), s.end(), std::back_inserter(bytes));
-    return bytes;
-}
+/// Converts base64 digits from a std::string-like object into a std::string of bytes.  Undefined
+/// behaviour if any characters are not valid base64 characters.
+template <typename CharT>
+std::string from_base64(std::basic_string_view<CharT> s) { return from_base64(s.begin(), s.end()); }
+inline std::string from_base64(std::string_view s) { return from_base64<>(s); }
 
 }

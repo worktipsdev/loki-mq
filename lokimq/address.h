@@ -28,7 +28,9 @@
 
 #pragma once
 #include <string>
-#include "string_view.h"
+#include <string_view>
+#include <cstdint>
+#include <iosfwd>
 
 namespace lokimq {
 
@@ -116,7 +118,27 @@ struct address {
      *
      * Throw std::invalid_argument if the given address is not parseable.
      */
-    address(string_view addr);
+    address(std::string_view addr);
+
+    /** Constructs an address from a remote string and a separate pubkey.  Typically `remote` is a
+     * basic ZMQ connect string, though this is not enforced.  Any pubkey information embedded in
+     * the remote string will be discarded and replaced with the given pubkey string.  The result
+     * will be curve encrypted if `pubkey` is non-empty, plaintext if `pubkey` is empty.
+     *
+     * Throws an exception if either addr or pubkey is invalid.
+     *
+     * Exactly equivalent to `address a{remote}; a.set_pubkey(pubkey);`
+     */
+    address(std::string_view addr, std::string_view pubkey) : address(addr) { set_pubkey(pubkey); }
+
+    /// Replaces the address's pubkey (if any) with the given pubkey (or no pubkey if empty).  If
+    /// changing from pubkey to no-pubkey or no-pubkey to pubkey then the protocol is update to
+    /// switch to or from curve encryption.
+    ///
+    /// pubkey should be the 32-byte binary pubkey, or an empty string to remove an existing pubkey.
+    ///
+    /// Returns the object itself, so that you can chain it.
+    address& set_pubkey(std::string_view pubkey);
 
     /// Constructs and builds the ZMQ connection address from the stored connection details.  This
     /// does not contain any of the curve-related details; those must be specified separately when
@@ -183,6 +205,6 @@ struct address {
 };
 
 // Outputs address.full_address() when sent to an ostream.
-std::ostream& operator<<(std::ostream& o, const address& a) { return o << a.full_address(); }
+std::ostream& operator<<(std::ostream& o, const address& a);
 
 }
