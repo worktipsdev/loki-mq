@@ -70,7 +70,7 @@ target_include_directories(worktipsmq
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/mapbox-variant/include>
 )
 
-target_compile_options(worktipsmq PRIVATE -Wall -Wextra -Werror)
+target_compile_options(worktipsmq PRIVATE -Wall -Wextra)
 set_target_properties(worktipsmq PROPERTIES
     CXX_STANDARD 14
     CXX_STANDARD_REQUIRED ON
