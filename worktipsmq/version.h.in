@@ -1,0 +1,5 @@
+namespace worktipsmq {
+constexpr int VERSION_MAJOR = @WORKTIPSMQ_VERSION_MAJOR@;
+constexpr int VERSION_MINOR = @WORKTIPSMQ_VERSION_MINOR@;
+constexpr int VERSION_PATCH = @WORKTIPSMQ_VERSION_PATCH@;
+}
